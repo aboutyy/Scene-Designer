@@ -98,10 +98,9 @@
                 <button class="button">Cubist</button>
                 <!-- Add more buttons as needed -->
             </div>
-            <div class="section history">
-                <p>History</p>
-                <p>A bougainvillea is ... 08.17 23:11</p>
-                <p>A dogwood is on the ... 08.17 23:07</p>
+            <div class="section full_script">
+                <p class="title">全脚本</p>
+                <div id="script-full" style="white-space: pre-wrap; overflow-y: auto; max-height: 200px;"></div>
             </div>
         </div>
         <div class="main-content">
@@ -112,7 +111,7 @@
                 </div>
                 <div class="section plants">
                     <p class="title">详细描述</p>
-                    <img src="https://via.placeholder.com/300x200" alt="Detailed Description Image">
+                    <div id="script-output" style="white-space: pre-wrap; overflow-y: auto; max-height: 200px;">得到的</div>
                 </div>
                 <div class="section layout">
                     <p class="title">平面布局</p>
@@ -127,6 +126,8 @@
     </div>
     <canvas id="screenshot-canvas"></canvas>
     <script>
+        // 历史消息
+        const messages = [];
         let scene, camera, renderer, controls, axesHelper;
     
         function interpretScene(sceneScript) {
@@ -318,13 +319,158 @@
                 createText('Z', { x: 0, y: 0, z: 5 });
             });
         }
+        function generatePrompt(query) {
+            const Prefix = [
+                "You are an expert in indoor designing. You can design objects and their spatial relations from natural language."
+            ];
+
+            const Gen_description = [
+                "Description 1. Giving you a description of an indoor scene and a set of generating rules, your task is to design what objects in it and their relations.",
+                "Description 2. The objects should be one of [wall, door, window]",
+                "Description 3. Direct answer structure language,  don't answer anything else, don't use()",
+            ];
+
+            const Constraints = [
+                "the wall should be in the format of (make_wall, id, a_x, a_y, a_z, b_x, b_y, b_z, height, thickness)",
+                "The window should be in the format of (make_window, id, wall1_id, position_x, position_y, position_z, width, height)",
+                "the door should be in the format of (make_door, id, wall0_id, wall1_id, position_x, position_y, position_z, width, height)",
+                "the window belongs to two walls at most",
+                // 墙的邻接关系
+                "For adjacent numbered walls, the b_x, b_y, b_z of the previous wall are the same as the a_x, a_y, a_z of the latter wall",
+                "The a_x, a_y, a_z of the first wall has the same value as the b_x, b_y, b_z of the last wall",
+                // 门窗position在水平面的投影点，应该在所在墙的水平面投影上
+                "When determining the coordinates of a window, they must be based on the projection line of the wall to which it belongs; if the coordinates are based on the projection line of a specific wall, the wall's ID is that specific number.. ",
+                // 门窗大小不能超过所在墙
+                "Doors and windows should be contained within the boundaries of the affiliated wall, respecting both its dimensions and the specified position coordinates."
+
+            ];
+
+            const Contexts = [
+                // 描述参数含义，给出部分默认值
+                "To create a wall, Parameters: - id: Unique identifier for the wall. - a_x, a_y, a_z: Coordinates of start point on the wall. - b_x, b_y, b_z: Orientation vector of the wall. - height: Height of the wall, defaulting to 2.9733970165252686 if not specified. - thickness: Thickness of the wall, defaulting to 0.0 if not specified.",
+                "To create a window, Parameters: - id: Unique identifier for the window. - wall0_id: ID of the adjacent wall where the window will be positioned. - wall1_id: ID of the other adjacent wall that determines the position of the window if not, the default value is -1. - position_x, position_y, position_z: Coordinates of the window on the designated wall. - width: Width of the window. - height: Height of the window.",
+                "To create a door, Parameters: - id: Unique identifier for the door. - wall0_id: ID of one adjacent wall that determines the position of the door. - wall1_id: ID of the other adjacent wall that determines the position of the door if not, the default value is -1. - position_x, position_y, position_z: Coordinates of the door on the designated wall. - width: Width of the door. - height: Height of the door."
+            ]
+
+            const example1 = `Input:请帮我生成一个房间，包含两个窗户部件和两个门部件，门和窗户分别位于不同的墙面上.
+            Output:make_wall, id=0, a_x=5.075017884373665, a_y=-3.802809461951256, a_z=0.0, b_x=8.803148046135902, b_y=-3.802809461951256, b_z=0.0, height=2.9733970165252686, thickness=0.0
+            make_wall, id=1, a_x=8.803148046135902, a_y=-3.802809461951256, a_z=0.0, b_x=8.803148046135902, b_y=-12.952100150287151, b_z=0.0, height=2.9733970165252686, thickness=0.0
+            make_wall, id=2, a_x=8.803148046135902, a_y=-12.952100150287151, a_z=0.0, b_x=5.075017884373665, b_y=-12.952100150287151, b_z=0.0, height=2.9733970165252686, thickness=0.0
+            make_wall, id=3, a_x=5.075017884373665, a_y=-12.952100150287151, a_z=0.0, b_x=5.075017884373665, b_y=-3.802809461951256, b_z=0.0, height=2.9733970165252686, thickness=0.0
+            make_door, id=1000, wall0_id=0, wall1_id=-1, position_x=8.192789077758789, position_y=-3.802809461951256, position_z=1.0098832144692487, width=1.0097355842590332, height=2.0197664289384973
+            make_door, id=1001, wall0_id=2, wall1_id=-1, position_x=6.106680870056152, position_y=-12.952100150287151, position_z=0.9895909480119021, width=1.3802390098571777, height=1.9791818960238041
+            make_window, id=2000, wall0_id=1, wall1_id=-1, position_x=8.803148046135902, position_y=-9.285975456237793, position_z=1.3269547912650475, width=4.991960048675537, height=2.0216695943036873
+            make_window, id=2001, wall0_id=3, wall1_id=-1, position_x=5.075017884373665, position_y=-5.122655868530273, position_z=1.2057269076030794, width=1.5298504829406738, height=2`;
+
+            const example2 = `请帮我生成两个房间，包含两个门部件和四个窗户部件。随机两个墙部件上各包含两个窗户，门部件在不同的墙上
+            Out:make_wall, id=0, a_x=-5.846966419368982, a_y=12.20135535299778, a_z=0.0, b_x=0.5364944078028202, b_y=12.20135535299778, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=1, a_x=0.5364944078028202, a_y=12.20135535299778, a_z=0.0, b_x=0.5364944078028202, b_y=7.375296246260405, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=2, a_x=0.5364944078028202, a_y=7.375296246260405, a_z=0.0, b_x=-5.846966419368982, b_y=7.375296246260405, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=3, a_x=-5.846966419368982, a_y=7.375296246260405, a_z=0.0, b_x=-5.846966419368982, b_y=12.20135535299778, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=4, a_x=0.6614952608942986, a_y=12.219753943383694, a_z=0.0, b_x=6.468121975660324, b_y=12.219753943383694, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=5, a_x=6.468121975660324, a_y=12.219753943383694, a_z=0.0, b_x=6.468121975660324, b_y=2.6228548996150494, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=6, a_x=6.468121975660324, a_y=2.6228548996150494, a_z=0.0, b_x=0.6614952608942986, b_y=2.6228548996150494, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_wall, id=7, a_x=0.6614952608942986, a_y=2.6228548996150494, a_z=0.0, b_x=0.6614952608942986, b_y=12.219753943383694, b_z=0.0, height=3.221004009246826, thickness=0.0
+                make_door, id=1000, wall0_id=1, wall1_id=7, position_x=0.5989948343485594, position_y=8.018399238586426, position_z=1.0105844624707752, width=1.0, height=2.0211689249415503
+                make_door, id=1001, wall0_id=4, wall1_id=-1, position_x=5.773168563842773, position_y=12.219753943383694, position_z=1.0304853692881115, width=1.0873160362243652, height=2.060970738576223
+                make_window, id=2000, wall0_id=5, wall1_id=-1, position_x=6.468121975660324, position_y=9.159162521362305, position_z=1.7381630801506738, width=3.8369531631469727, height=1.4090573993193152
+                make_window, id=2001, wall0_id=5, wall1_id=-1, position_x=6.468121975660324, position_y=4.2747955322265625, position_z=1.577255312740359, width=1.9664020538330078, height=1.386941835428122
+                make_window, id=2002, wall0_id=6, wall1_id=-1, position_x=4.196993827819824, position_y=2.6228548996150494, position_z=1.6764263985921937, width=3.975425958633423, height=2.0706818763610153
+                make_window, id=2003, wall0_id=6, wall1_id=-1, position_x=1.364780306816101, position_y=2.6228548996150494, position_z=1.724721617167725, width=1.0551683902740479, height=1.9686525937701846`;
+
+            const Best_practices = [example1, example2];
+
+            const prompt_template = `
+            Prefix:    
+            {Prefix}
+            
+            General_description:
+            {Gen_description}
+            
+            Constraints:
+            {Constraints}
+
+            Contexts:
+            {Contexts}
+            
+            Best practices:
+            {Best_practices}
+            
+            query:
+            {Query}
+            `;
+
+            const constraints_prompt = Constraints.map((con, idx) => `${idx + 1}. ${con}`).join("\n");
+
+            const best_practices_prompt = Best_practices.map((con, idx) => `${idx + 1}. ${con}`).join("\n");
+
+            return prompt_template
+                .replace("{Prefix}", Prefix.join("\n"))
+                .replace("{Gen_description}", Gen_description.join("\n"))
+                .replace("{Constraints}", constraints_prompt)
+                .replace("{Contexts}",Contexts)
+                .replace("{Best_practices}", best_practices_prompt)
+                .replace("{Query}", query);     
+}
+
+        // 定义生成文本的函数
+        async function generateText(prompt) {
+            const apiKey = "sk-proj-KU6To2a0DTT62rNoMslNT3BlbkFJqmjk11mSH1Z1v7yydf5p";
+            try{
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                            method: 'POST',
+                            headers: {
+                                "Content-Type": "application/json",
+                                Authorization: "Bearer " + apiKey   
+                            },
+                            body: JSON.stringify({
+                                model:"gpt-4",
+                                messages:[{ role: 'user', content: prompt }],
+                            })
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        const data = await response.json();
+                        console.log('API Response:', data);
+                        return data.choices[0].message.content;
+                    } catch (error) {
+                        console.error('Error:', error);
+                        return null;
+                    }
+        }
+
+        function generateScript(userInput) {
     
+            const inputDiv = userInput
+            //const message = generatePrompt(inputDiv);
+            const outputDiv = document.getElementById('script-output');
+            const prompt = generatePrompt(inputDiv);
+            const fullMessage=document.getElementById('script-full');
+            fullMessage.innerText = prompt;
+            generateText(prompt)
+                .then(result => {
+                    outputDiv.innerHTML = result;
+                });
+}
+
+        // 点击生成场景按钮，从输入框读取文本，然后给LLM，输出重建脚本
         function generateModel() {
             clearScene();
-            const script = document.getElementById('idea-input').value;
-            document.getElementById('script-output').innerText = script;
-            const objects = interpretScene(script);
-            plotScene(objects);
+            const userInput = document.getElementById('idea-input').value.trim();
+            // generateScript(userInput);
+            // // document.getElementById('script-output').innerText = script;
+            // script = document.getElementById('script-output').innerText;
+            const prompt = generatePrompt(userInput);
+            document.getElementById('script-full').innerText = prompt;
+            generateText(prompt)
+                .then(result => {
+                    document.getElementById('script-output').innerText = result;
+                    const objects = interpretScene(result);
+                    plotScene(objects);
+                });
+
         }
     
         createScene();
