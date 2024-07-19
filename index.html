@@ -3,15 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plantography</title>
+    <title>场景设计</title>
     <style>
         body {
             display: flex;
-            font-family: Arial, sans-serif;
+            flex-direction: column;
+            font-family: 'Arial', sans-serif;
             background-color: #e7f0d9;
             margin: 0;
             height: 100vh;
             overflow: hidden;
+        }
+        .content {
+            display: flex;
+            flex: 1;
         }
         .sidebar {
             width: 20%;
@@ -45,92 +50,285 @@
         .graph, .plants, .layout {
             width: 30%;
         }
+        .graph {
+            overflow-y: auto;
+            max-height: 300px; /* Adjust the height as needed */
+        }
         .render {
-            height: calc(100vh - 260px); /* Adjust height as needed */
+            height: calc(50vh - 60px); /* Adjust height as needed */
             box-sizing: border-box;
             flex-grow: 1;
             position: relative;
+            background-color: #e7f0d9; /* Matching background color */
         }
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            box-sizing: border-box;
+        .scene {
+            flex-grow: 1;
+            position: relative;
+            background-color: transparent; /* Matching background color */
+        }
+        .title {
+            font-weight: bold;
+            font-size: 1em;
         }
         canvas {
             display: none;
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.3.2/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-    <div class="sidebar">
-        <div class="section idea-box">
-            <textarea id="idea-input" rows="6" style="width: 100%;">A bougainvillea is on the left of a poinciana. A bush is in front of a poinciana and a bougainvillea. A bougainvillea is on the right of a bush. A dogwood is on the right.</textarea>
-        </div>
-        <button class="button" onclick="generateScript()">生成模型</button>
-        <div class="section">
-            <label>Weather</label>
-            <input type="range" class="slider" min="0" max="100">
-        </div>
-        <div class="section">
-            <label>Time</label>
-            <input type="range" class="slider" min="0" max="100">
-        </div>
-        <div class="section">
-            <label>Style Keyword</label>
-            <button class="button">Realistic</button>
-            <button class="button">Cubist</button>
-            <!-- Add more buttons as needed -->
-        </div>
-        <div class="section history">
-            <p>History</p>
-            <p>A bougainvillea is ... 08.17 23:11</p>
-            <p>A dogwood is on the ... 08.17 23:07</p>
-        </div>
-    </div>
-    <div class="main-content">
-        <div class="top-section">
-            <div class="section graph">
-                <p>重建脚本</p>
-                <div id="script-output" style="white-space: pre-wrap;"></div>
+    <div class="content">
+        <div class="sidebar">
+            <div class="section idea-box">
+                <textarea id="idea-input" rows="6" style="width: 100%;">make_wall, id=0, a_x=-2.56, a_y=6.16, a_z=0.0, b_x=5.06, b_y=6.16, b_z=0.0, height=3.26, thickness=0.1</textarea>
             </div>
-            <div class="section plants">
-                <p>详细描述</p>
-                <img src="https://via.placeholder.com/300x200" alt="Detailed Description Image">
+            <button class="button" onclick="generateModel()">生成模型</button>
+            <div class="section">
+                <label>Weather</label>
+                <input type="range" class="slider" min="0" max="100">
             </div>
-            <div class="section layout">
-                <p>平面布局</p>
-                <img id="layout-image" src="https://via.placeholder.com/300x200" alt="Layout Image">
+            <div class="section">
+                <label>Time</label>
+                <input type="range" class="slider" min="0" max="100">
+            </div>
+            <div class="section">
+                <label>Style Keyword</label>
+                <button class="button">Realistic</button>
+                <button class="button">Cubist</button>
+                <!-- Add more buttons as needed -->
+            </div>
+            <div class="section history">
+                <p>History</p>
+                <p>A bougainvillea is ... 08.17 23:11</p>
+                <p>A dogwood is on the ... 08.17 23:07</p>
             </div>
         </div>
-        <div class="section render">
-            <iframe id="webpage-content" src="http://172.16.3.38:5000"></iframe>
+        <div class="main-content">
+            <div class="top-section">
+                <div class="section graph">
+                    <p class="title">重建脚本</p>
+                    <div id="script-output" style="white-space: pre-wrap; overflow-y: auto; max-height: 200px;"></div>
+                </div>
+                <div class="section plants">
+                    <p class="title">详细描述</p>
+                    <img src="https://via.placeholder.com/300x200" alt="Detailed Description Image">
+                </div>
+                <div class="section layout">
+                    <p class="title">平面布局</p>
+                    <img id="layout-image" src="https://via.placeholder.com/300x200" alt="Layout Image">
+                </div>
+            </div>
+            <div class="section render">
+                <p class="title">三维场景</p>
+                <div id="scene-container" class="scene"></div>
+            </div>
         </div>
     </div>
     <canvas id="screenshot-canvas"></canvas>
     <script>
-        function generateScript() {
-            const ideaText = document.getElementById('idea-input').value;
-            document.getElementById('script-output').innerText = ideaText;
+        let scene, camera, renderer, controls, axesHelper;
+    
+        function interpretScene(sceneScript) {
+            const objects = [];
+            const templines = sceneScript.split('\n');
+            let lines = templines.filter(line => line.trim().length > 0);
+            for (let line of lines) {
+                const parts = line.split(', ');
+                const type = parts[0];
+                const params = {};
+                for (let i = 1; i < parts.length; i++) {
+                    const [key, value] = parts[i].split('=');
+                    params[key] = parseFloat(value);
+                }
+                objects.push({ type, params });
+            }
+            return objects;
         }
+    
+        function plotScene(objects) {
+            const walls = objects.filter(obj => obj.type === 'make_wall');
+            const doorsAndWindows = objects.filter(obj => obj.type === 'make_door' || obj.type === 'make_window');
+    
+            // Plot walls first
+            walls.forEach(wall => plotWall(wall.params));
+    
+            // Then plot doors and windows
+            doorsAndWindows.forEach(obj => {
+                switch (obj.type) {
+                    case 'make_door':
+                        plotDoor(obj.params, walls);
+                        break;
+                    case 'make_window':
+                        plotWindow(obj.params, walls);
+                        break;
+                }
+            });
+        }
+    // Function to calculate position and rotation
+    function calculatePositionAndRotation(a, b, h) {
+        // Calculate the vector from a to b
+        const vecAB = new THREE.Vector3(b.x - a.x, b.y - a.y, b.z - a.z);
 
-        function takeScreenshot() {
-            const iframe = document.getElementById('webpage-content');
-            iframe.onload = () => {
-                html2canvas(iframe.contentWindow.document.body).then(canvas => {
-                    const dataURL = canvas.toDataURL();
-                    document.getElementById('layout-image').src = dataURL;
-                }).catch(err => {
-                    console.error('Error taking screenshot:', err);
+        // Calculate the angle of rotation in the xz plane
+        const angle = Math.atan2(vecAB.z, vecAB.x);
+
+        // Calculate the center position
+        const center = new THREE.Vector3((a.x + b.x) / 2, h / 2, (a.z + b.z) / 2);
+
+        return {
+            position: center,
+            rotation: angle
+        };
+    }
+        function plotWall(params) {
+            const { a_x, a_y, a_z, b_x, b_y, b_z, height, thickness } = params;
+            const length = Math.sqrt((b_x - a_x) ** 2 + (b_y - a_y) ** 2 + (b_z - a_z) ** 2);
+            const geometry = new THREE.BoxGeometry(length, height, 0.1); // Ensure thickness is not zero
+            const material = new THREE.MeshBasicMaterial({ color: 0xFFF5EE }); // Ivory color for wall
+            const wall = new THREE.Mesh(geometry, material);
+            const a = new THREE.Vector3(a_x, a_z, a_y);
+            const b = new THREE.Vector3(b_x, b_z, b_y);
+            const { position, rotation } = calculatePositionAndRotation(a, b, height);
+            wall.position.copy(position);
+            wall.rotation.y = -rotation; // Apply the calculated rotation
+            scene.add(wall);
+        }
+    
+        function plotDoor(params, walls) {
+            const { position_x, position_y, position_z, width, height, wall0_id } = params;
+            const wall = walls.find(w => w.params.id === wall0_id);
+            if (wall) {
+                const { a_x, a_y, a_z, b_x, b_y, b_z, height: wallHeight, thickness } = wall.params;
+                const geometry = new THREE.BoxGeometry(width, height, 0.2);
+                const material = new THREE.MeshBasicMaterial({ color: 0x8B4513 }); // SaddleBrown color for door
+                const door = new THREE.Mesh(geometry, material);
+    
+                // Calculate the position of the door based on the wall's position and rotation
+                const angle = Math.atan2(b_y - a_y, b_x - a_x);
+                const a = new THREE.Vector3(a_x, a_z, a_y);
+                const b = new THREE.Vector3(b_x, b_z, b_y);
+                const { position, rotation } = calculatePositionAndRotation(a, b, height);
+                door.position.set(position_x,  position_z, position_y);
+                door.rotation.y = -rotation; // Apply the calculated rotation
+                scene.add(door);
+            }
+        }
+    
+        function plotWindow(params, walls) {
+            const { position_x, position_y, position_z, width, height, wall0_id } = params;
+            const wall = walls.find(w => w.params.id === wall0_id);
+            if (wall) {
+                const { a_x, a_y, a_z, b_x, b_y, b_z, height: wallHeight, thickness } = wall.params;
+                const geometry = new THREE.BoxGeometry(width, height, 0.2);
+                const material = new THREE.MeshBasicMaterial({ color: 0x000000 }); // Black color for window
+                const window = new THREE.Mesh(geometry, material);
+    
+                // Calculate the position of the window based on the wall's position and rotation
+                const a = new THREE.Vector3(a_x, a_z, a_y);
+                const b = new THREE.Vector3(b_x, b_z, b_y);
+                const { position, rotation } = calculatePositionAndRotation(a, b, height);
+                window.position.set(position_x,  position_z, position_y);
+                window.rotation.y = -rotation; // Apply the calculated rotation
+
+                scene.add(window);
+            }
+        }
+    
+        function createScene() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth * 0.8 / (window.innerHeight / 2 - 60), 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ alpha: true });
+            renderer.setSize(window.innerWidth * 0.8, window.innerHeight / 2 - 60);
+            document.getElementById('scene-container').appendChild(renderer.domElement);
+    
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.maxPolarAngle = Math.PI / 2; // Limit vertical rotation to avoid flipping
+            controls.minDistance = 5; // Minimum distance to the object
+            controls.maxDistance = 50; // Maximum distance from the object
+            camera.position.z = 20; // Adjusted camera position
+            controls.update();
+    
+            // Create and add axes helper
+            axesHelper = new THREE.AxesHelper(5);
+            axesHelper.name = "axesHelper"; // Set a name to retrieve it later
+            scene.add(axesHelper);
+    
+            // Add axis labels
+            const loader = new THREE.FontLoader();
+            loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
+                const color = 0x000000;
+                const matLite = new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 0.8,
+                    side: THREE.DoubleSide
                 });
-            };
+    
+                const createText = (text, position) => {
+                    const shapes = font.generateShapes(text, 0.5);
+                    const geometry = new THREE.ShapeGeometry(shapes);
+                    const textMesh = new THREE.Mesh(geometry, matLite);
+                    textMesh.position.set(position.x, position.y, position.z);
+                    scene.add(textMesh);
+                };
+    
+                createText('X', { x: 5, y: 0, z: 0 });
+                createText('Y', { x: 0, y: 5, z: 0 });
+                createText('Z', { x: 0, y: 0, z: 5 });
+            });
+    
+            animate();
         }
-
-        document.querySelector('.button').addEventListener('click', () => {
-            generateScript();
-            takeScreenshot();
-        });
+    
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    
+        function clearScene() {
+            // Remove all objects except the axes helper
+            for (let i = scene.children.length - 1; i >= 0; i--) {
+                const obj = scene.children[i];
+                if (obj.name !== "axesHelper") {
+                    scene.remove(obj);
+                }
+            }
+            const loader = new THREE.FontLoader();
+            loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function (font) {
+                const color = 0x000000;
+                const matLite = new THREE.MeshBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 0.8,
+                    side: THREE.DoubleSide
+                });
+    
+                const createText = (text, position) => {
+                    const shapes = font.generateShapes(text, 0.5);
+                    const geometry = new THREE.ShapeGeometry(shapes);
+                    const textMesh = new THREE.Mesh(geometry, matLite);
+                    textMesh.position.set(position.x, position.y, position.z);
+                    scene.add(textMesh);
+                };
+    
+                createText('X', { x: 5, y: 0, z: 0 });
+                createText('Y', { x: 0, y: 5, z: 0 });
+                createText('Z', { x: 0, y: 0, z: 5 });
+            });
+        }
+    
+        function generateModel() {
+            clearScene();
+            const script = document.getElementById('idea-input').value;
+            document.getElementById('script-output').innerText = script;
+            const objects = interpretScene(script);
+            plotScene(objects);
+        }
+    
+        createScene();
     </script>
+        
 </body>
 </html>
